@@ -14,17 +14,27 @@ async fn main() -> anyhow::Result<()> {
     let client_id = std::env::var("CLIENT_ID").context("missing CLIENT_ID")?;
     let client_secret = std::env::var("CLIENT_SECRET").context("missing CLIENT_SECRET")?;
     let domain = std::env::var("DOMAIN").context("missing DOMAIN")?;
+
+    let data = reqwest::get(format!("https://{}/.well-known/openid-configuration", domain))
+        .await?
+        .json::<serde_json::Value>()
+        .await?;
+
+    let auth_endpoint = data["authorization_endpoint"].as_str().context("Missing require oidc field: authorization_endpoint")?;
+    let token_endpoint = data["authorization_endpoint"].as_str().context("Missing require oidc field: authorization_endpoint")?;
+
+
     // Create an OAuth2 client by specifying the client ID, client secret, authorization URL and
     // token URL.
     let client = BasicClient::new(
         ClientId::new(client_id.to_string()),
         Some(ClientSecret::new(client_secret.to_string())),
-        AuthUrl::new(format!("https://{}/authorize", domain))?,
-        Some(TokenUrl::new(format!("https://{}/oauth/token", domain))?),
+        AuthUrl::new(auth_endpoint.to_string())?,
+        Some(TokenUrl::new(token_endpoint.to_string())?),
     )
     // Set the URL the user will be redirected to after the authorization process.
     // user will actually go back to `https://localhost:3000/callback?code=...&state=...`
-    .set_redirect_uri(RedirectUrl::new("https://localhost:3000/callback".to_string())?);
+    .set_redirect_uri(RedirectUrl::new("http://localhost:3000/mandy/auth/callback".to_string())?);
 
     // Generate a PKCE challenge.
     let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
@@ -32,12 +42,16 @@ async fn main() -> anyhow::Result<()> {
     // Generate the full authorization URL. This should be unique for each new login.
     let (auth_url, csrf_token) = client
         .authorize_url(CsrfToken::new_random)
-        // Set the desired scopes.
-        .add_scope(Scope::new("read".to_string()))
-        .add_scope(Scope::new("write".to_string()))
+        // required
+        .add_scope(Scope::new("openid".to_string()))
+        .add_scope(Scope::new("groups".to_string()))
+        // optional
         .add_scope(Scope::new("profile".to_string()))
-        .add_scope(Scope::new("name".to_string()))
+        .add_scope(Scope::new("offline_access".to_string()))
+        // PII
         .add_scope(Scope::new("email".to_string()))
+        //.add_scope(Scope::new("phone".to_string()))
+        //.add_scope(Scope::new("address".to_string()))
         // Set the PKCE code challenge.
         .set_pkce_challenge(pkce_challenge)
         .url();
