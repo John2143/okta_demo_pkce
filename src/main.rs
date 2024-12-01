@@ -21,8 +21,8 @@ async fn main() -> anyhow::Result<()> {
         .await?;
 
     let auth_endpoint = data["authorization_endpoint"].as_str().context("Missing require oidc field: authorization_endpoint")?;
-    let token_endpoint = data["authorization_endpoint"].as_str().context("Missing require oidc field: authorization_endpoint")?;
-
+    let token_endpoint = data["token_endpoint"].as_str().context("Missing require oidc field: authorization_endpoint")?;
+    let user_info_endpoint = data["userinfo_endpoint"].as_str().context("Missing require oidc field: authorization_endpoint")?;
 
     // Create an OAuth2 client by specifying the client ID, client secret, authorization URL and
     // token URL.
@@ -34,7 +34,8 @@ async fn main() -> anyhow::Result<()> {
     )
     // Set the URL the user will be redirected to after the authorization process.
     // user will actually go back to `https://localhost:3000/callback?code=...&state=...`
-    .set_redirect_uri(RedirectUrl::new("http://localhost:3000/mandy/auth/callback".to_string())?);
+    //.set_redirect_uri(RedirectUrl::new("https://2143.me/auth/callback".to_string())?);
+    .set_redirect_uri(RedirectUrl::new("http://localhost:3000/auth/callback".to_string())?);
 
     // Generate a PKCE challenge.
     let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
@@ -44,12 +45,12 @@ async fn main() -> anyhow::Result<()> {
         .authorize_url(CsrfToken::new_random)
         // required
         .add_scope(Scope::new("openid".to_string()))
-        .add_scope(Scope::new("groups".to_string()))
+        //.add_scope(Scope::new("groups".to_string()))
         // optional
-        .add_scope(Scope::new("profile".to_string()))
-        .add_scope(Scope::new("offline_access".to_string()))
+        //.add_scope(Scope::new("profile".to_string()))
+        //.add_scope(Scope::new("offline_access".to_string()))
         // PII
-        .add_scope(Scope::new("email".to_string()))
+        //.add_scope(Scope::new("email".to_string()))
         //.add_scope(Scope::new("phone".to_string()))
         //.add_scope(Scope::new("address".to_string()))
         // Set the PKCE code challenge.
@@ -71,6 +72,13 @@ async fn main() -> anyhow::Result<()> {
         .collect::<HashMap<_, _>>();
 
     println!("We found the following query parameters: {:#?}", query_params);
+    // {
+    //     "code": "4/0AeanS...",
+    //     "prompt": "consent",
+    //     "scope": "openid",
+    //     "authuser": "0",
+    //     "state": "RPKbLPc7z...",
+    // }
 
     let callback_code = query_params.get("code").context("missing code in callback uri")?;
     let callback_state = query_params.get("state").context("missing state in callback uri")?;
@@ -104,6 +112,8 @@ async fn main() -> anyhow::Result<()> {
             println!("Token (the frontend should use this as a bearer): {}", &token.access_token().secret());
             println!("Token type: {:?}", &token.token_type());
             println!("Token extra fields: {:?}", &token.extra_fields());
+            // Scopes
+            println!("Token scopes: {:?}", &token.scopes());
             token.access_token().secret().to_string()
         },
 
@@ -116,31 +126,15 @@ async fn main() -> anyhow::Result<()> {
 
     println!("... now we can use the bearer token to access the api ...");
 
-    // ----- 
 
-    // Now, pretend this is the api check_token method
-
-    // Check bearer token using the introspection endpoint
-    let introspect = format!("https://{domain}/oauth/introspect");
-    let introspect_response = reqwest::Client::new()
-        .post(introspect)
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .header("Accept", "application/json")
-        .basic_auth(client_id, Some(client_secret))
-        .form(&[
-            ("token", &bearer_token),
-            ("token_type_hint", &"access_token".into()),
-            //("client_id", &client_id),
-            //("client_secret", &client_secret),
-        ])
+    let f = reqwest::Client::new()
+        .get(user_info_endpoint)
+        .bearer_auth(bearer_token)
         .send()
         .await?
         .json::<serde_json::Value>()
         .await?;
 
-
-    dbg!(introspect_response);
-
-
+    dbg!(f);
     Ok(())
 }
